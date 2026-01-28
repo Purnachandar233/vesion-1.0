@@ -1,0 +1,31 @@
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder } = require("discord.js");
+
+
+module.exports = {
+    name: "support",
+    description: "Support Server link.",
+    wl : true,
+   
+    run: async (client, interaction) => {
+
+        await interaction.deferReply({
+              ephemeral: false
+          });  
+          let ok = client.emoji.ok;
+          let no = client.emoji.no;
+          
+          const row = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+        .setLabel("Support Server")
+        .setStyle(5)
+        .setURL(`https://discord.gg/pCj2UBbwST`),
+          );
+      
+              const mainPage = new EmbedBuilder()
+              .setDescription(`[Click here](https://discord.gg/pCj2UBbwST) to join our support server.`)
+              .setColor(0x00AE86)
+          return interaction.followUp({embeds: [mainPage], components: [row]})
+   
+  },
+};
