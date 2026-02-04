@@ -6,7 +6,7 @@ module.exports = {
   aliases: [],
   description: 'enables / disables the track loop or queue loop',
   owner: false,
-  djonly : true,
+  djonly : false,
   wl : true,
   execute: async (message, args, client, prefix) => {
    

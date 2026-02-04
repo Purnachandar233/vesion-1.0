@@ -46,7 +46,7 @@ module.exports = async (client, player, track, payload) => {
             let res = null;
             try {
                 // Search non-YouTube sources using the built query.
-                const sources = ['soundcloud', 'spotify', 'bandcamp', 'deezer', 'applemusic'];
+                const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer', 'applemusic'];
                 for (const source of sources) {
                     try {
                         const sp = player.search({ query: builtQuery, source }, requester.user ? requester.user : requester);

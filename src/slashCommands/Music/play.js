@@ -99,7 +99,7 @@ module.exports = {
           client.logger?.log(`Spotify URL search error: ${searchErr.message}`, 'error');
           // Fallback: search on other sources using extracted title/artist
           try {
-            const sources = ['soundcloud', 'bandcamp', 'deezer'];
+            const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer'];
             for (const source of sources) {
               try {
                 const fallbackSearchPromise = player.search({ query: searchQuery, source }, interaction.member.user);
@@ -124,7 +124,7 @@ module.exports = {
       }
     } else {
       // Try multiple sources for regular searches
-      const sources = ['soundcloud', 'spotify', 'bandcamp', 'deezer'];
+      const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer'];
       for (const source of sources) {
         try {
           const searchPromise = player.search({ query, source }, interaction.member.user);

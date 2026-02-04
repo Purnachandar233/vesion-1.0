@@ -5,7 +5,7 @@ module.exports = {
   name: "setdj",
   category: "settings",
   description: "Toggles djrole mode",
-  owner: false,
+  owner: true,
   premium: true,
   votelock:true,
   wl : true,

@@ -5,7 +5,7 @@ module.exports = {
   name: "resetdj",
   category: "settings",
   description: "Resets the djrole setup ",
-  owner: false,
+  owner: true,
   votelock:true,
   wl : true,
   execute: async (message, args, client, prefix) => {  

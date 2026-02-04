@@ -7,7 +7,7 @@ module.exports = {
   aliases: ["apu","ruko"],
   description: 'Pauses the player.',
   owner: false,
-  djonly : true,
+  djonly : false,
   wl : true,
   execute: async (message, args, client, prefix) => {
      

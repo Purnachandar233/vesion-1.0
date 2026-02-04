@@ -7,6 +7,7 @@ module.exports = {
   aliases: ["vo","vol","volum"],
   description: 'plays some high quality music for you',
   owner: false,
+  djonly : false,
   votelock:true,
   wl : true,
   execute: async (message, args, client, prefix) => {

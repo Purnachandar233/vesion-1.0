@@ -133,7 +133,7 @@ module.exports = {
         // Search non-YouTube sources using the built query.
         let res = null;
         if (query) {
-          const sources = ['soundcloud', 'spotify', 'bandcamp', 'deezer', 'applemusic'];
+          const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer', 'applemusic'];
           for (const source of sources) {
             try {
               const sp = player.search({ query, source }, interaction.member);

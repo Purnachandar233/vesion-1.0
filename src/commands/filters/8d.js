@@ -6,7 +6,7 @@ module.exports = {
   description: 'Enables or disables the 8d',
   args: false,
   usage: '',
-  djonly: true,
+  djonly: false,
   votelock: true,
   wl: true,
 

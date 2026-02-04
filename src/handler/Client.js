@@ -46,12 +46,16 @@ module.exports = async (client) => {
     const mongoUrl = process.env.MONGODB_URL || process.env.MONGOURI || client.config.mongourl;
    
     if (mongoUrl && typeof mongoUrl === 'string' && mongoUrl.startsWith('mongodb')) {
+            // Connect to MongoDB but do not block startup on slow DBs — log result asynchronously.
             try {
-            await mongoose.connect(mongoUrl, dbOptions);
-            safeLog('Connected to MongoDB', 'info');
-        } catch (err) {
-            safeLog(`[ERROR] MongoDB connection failed: ${err.message || err}`, 'error');
-        }
+                mongoose.connect(mongoUrl, dbOptions).then(() => {
+                    safeLog('Connected to MongoDB', 'info');
+                }).catch((err) => {
+                    safeLog(`[ERROR] MongoDB connection failed: ${err && (err.message || err)}`, 'error');
+                });
+            } catch (err) {
+                safeLog(`[ERROR] MongoDB connect thrown error: ${err && (err.message || err)}`, 'error');
+            }
     } else {
         safeLog('[WARN] No valid MongoDB URL provided. Database features will be unavailable.', 'warn');
     }
@@ -151,14 +155,20 @@ readdirSync("./src/slashCommands/").forEach((dir) => {
     // same initialization for both event names to remain backwards compatible
     // and avoid the deprecation warning.
         const setupLavalink = async () => {
+            // Prevent double-initialization when both `ready` and `clientReady`
+            // fire during startup in different environments.
+            if (client.lavalink) {
+                safeLog('Lavalink already initialized; skipping setup.', 'info');
+                return;
+            }
             safeLog('Starting Lavalink setup...', 'info');
          // Initialize Lavalink Manager
         const nodes = client.config?.nodes || [];
 
             // Log node configuration (mask authorization) for debugging in hosted environments
             try {
-                const nodeSummary = Array.isArray(nodes) && nodes.length > 0 ? nodes.map(n => `${n.host}:${n.port} (secure:${n.secure}) auth:${n.authorization ? '[REDACTED]' : '[none]'}`).join(', ') : 'none';
-                safeLog(`Lavalink nodes configured: ${Array.isArray(nodes) ? nodes.length : 0} -> ${nodeSummary}`, 'info');
+                const nodeSummary = Array.isArray(nodes) && nodes.length > 0 ? nodes.map(n => `${n.host}`).join(', ') : 'none';
+                safeLog(`Lavalink nodes : ${Array.isArray(nodes) ? nodes.length : 0} -> ${nodeSummary}`, 'info');
             } catch (e) {
                 safeLog(`Error summarizing Lavalink nodes: ${e && (e.stack || e.message || e)}`, 'warn');
             }
@@ -231,8 +241,12 @@ readdirSync("./src/slashCommands/").forEach((dir) => {
         try {
             if (Array.isArray(data) && data.length > 0) {
                 if (client.application && client.application.commands && typeof client.application.commands.set === 'function') {
-                    await client.application.commands.set(data);
-                    safeLog(`Registered ${data.length} global slash commands.`, 'info');
+                    // Register slash commands in background to avoid blocking ready.
+                    client.application.commands.set(data).then(() => {
+                        safeLog(`Registered ${data.length} global slash commands.`, 'info');
+                    }).catch((e) => {
+                        safeLog(`Failed to register global slash commands: ${e && (e.stack || e.toString())}`, 'error');
+                    });
                 } else {
                     safeLog('client.application.commands not available to register slash commands yet', 'warn');
                 }
@@ -240,13 +254,11 @@ readdirSync("./src/slashCommands/").forEach((dir) => {
                 safeLog('No slash command data to register', 'info');
             }
         } catch (e) {
-            safeLog(`Failed to register global slash commands: ${e && (e.stack || e.toString())}`, 'error');
+            safeLog(`Failed to schedule global slash commands registration: ${e && (e.stack || e.toString())}`, 'error');
         }
-        try {
-            await setupLavalink();
-        } catch (e) {
-            safeLog(e && (e.stack || e.toString()), 'error');
-        }
+        // Note: Lavalink setup is performed on the `clientReady` event to
+        // avoid duplicate initialization. `ready` still registers slash
+        // commands and logs client readiness.
     });
     client.once("clientReady", async () => {
         safeLog('clientReady event fired', 'info');

@@ -9,7 +9,7 @@ module.exports = {
   owner: false,
   premium: true,
   votelock:true,
-  djonly : true,
+  djonly : false,
   wl : true,
   execute: async (message, args, client, prefix) => {  
     let ok = client.emoji.ok;
@@ -75,7 +75,7 @@ module.exports = {
          // Try searching non-YouTube sources using query
          let res = null;
          if (query) {
-           const sources = ['soundcloud', 'spotify', 'bandcamp', 'deezer', 'applemusic'];
+           const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer', 'applemusic'];
            for (const source of sources) {
              try {
                const sp = player.search({ query, source }, message.member);

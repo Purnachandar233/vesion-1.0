@@ -4,9 +4,9 @@ module.exports = {
   name: 'clearqueue',
   category: 'music',
   aliases: ["cq","clear","removeall","annitesai","deletequeue"],
-  description: 'plays some high quality music for you',
+  description: 'clears the queue',
   owner: false,
-  djonly : true,
+  djonly : false,
   wl : true,
   execute: async (message, args, client, prefix) => {
      

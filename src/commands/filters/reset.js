@@ -2,12 +2,13 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder } = require('discord.js')
 
 module.exports = {
   name: 'reset',
+  aliases: ['clearfilters'],
   category: 'filters',
   description: 'Clears all the filters.',
   args: false,
   usage: '',
   votelock: true,
-  djonly: true,
+  djonly: false,
   wl: true,
   execute: async (message, args, client, prefix) => {
     const ok = client.emoji.ok

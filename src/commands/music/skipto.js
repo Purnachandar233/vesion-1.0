@@ -7,7 +7,7 @@ module.exports = {
   aliases: ["skp"],
   description: 'skips to a specific song in the queue.',
   owner: false,
-  djonly : true,
+  djonly : false,
   wl : true,
   execute: async (message, args, client, prefix) => {
       

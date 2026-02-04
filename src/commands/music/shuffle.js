@@ -5,9 +5,9 @@ module.exports = {
   name: 'shuffle',
   category: 'music',
   aliases: ["shuf"],
-  description: 'skips the current song. ',
+  description: 'shuffles the queue',
   owner: false,
-  djonly : true,
+  djonly : false,
   wl : true,
   execute: async (message, args, client, prefix) => {
 

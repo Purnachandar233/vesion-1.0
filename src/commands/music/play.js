@@ -51,19 +51,49 @@ module.exports = {
       selfDeafen: true,
     });
 
-    // Ensure player is connected before proceeding
-    if (player.state !== "CONNECTED") {
-      try {
-        await safePlayer.safeCall(player, 'connect');
-        // Wait a bit for connection to establish
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch (error) {
-        client.logger?.log(`Player connection failed: ${error.message}`, 'error');
-        return await message.channel.send({ embeds: [new EmbedBuilder().setColor(message.client?.embedColor || '#ff0051').setDescription("Failed to connect to voice channel. Please try again.")] }).catch(() => {});
-      }
-    }
+    // Defer connecting until playback starts to ensure queue message posts first.
+    // Connection will be attempted inside `attemptPlay` when needed.
 
     let s;
+    // Helper: robustly start playback. Waits briefly for the queue to populate,
+    // retries, and falls back to calling play with the first track if the
+    // queue never becomes populated.
+    const attemptPlay = async (player, s, preferTrack) => {
+      try {
+        // Ensure player is connected right before trying to play so the
+        // voice connection is established at track start time.
+        if (player.state !== "CONNECTED") {
+          try {
+            await safePlayer.safeCall(player, 'connect');
+            await new Promise(resolve => setTimeout(resolve, 400));
+          } catch (connectErr) {
+            client.logger?.log && client.logger.log(`Player connection failed during play attempt: ${connectErr && (connectErr.message || connectErr)}`,'error');
+            return false;
+          }
+        }
+        const maxAttempts = 5;
+        for (let i = 0; i < maxAttempts; i++) {
+          try {
+            if (safePlayer.queueSize(player) > 0) {
+              return await safePlayer.safeCall(player, 'play');
+            }
+          } catch (e) {}
+          await new Promise(r => setTimeout(r, 200));
+        }
+        // Fallback: try to call play with the first available track string
+        const candidate = preferTrack || (s && s.tracks && s.tracks[0]);
+        if (!candidate) return false;
+        const trackStr = candidate.track || candidate.encoded || candidate?.info?.identifier || candidate?.id || candidate?.uri || candidate;
+        try {
+          return await safePlayer.safeCall(player, 'play', trackStr);
+        } catch (e) {
+          client.logger?.log && client.logger.log(`attemptPlay fallback failed: ${e && (e.message || e)}`,'warn');
+          return false;
+        }
+      } catch (err) {
+        return false;
+      }
+    };
     if (query.match(/https?:\/\/(open\.spotify\.com|spotify\.link)/)) {
       // Try direct URL loading first (works for playlists and tracks)
       try {
@@ -82,7 +112,7 @@ module.exports = {
             const tracksInfo = await getTracks(query).catch(() => null);
             if (tracksInfo && Array.isArray(tracksInfo) && tracksInfo.length) {
               const limit = Math.min(tracksInfo.length, 50);
-              const sources = ['soundcloud', 'spotify', 'bandcamp', 'deezer', 'applemusic'];
+              const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer', 'applemusic'];
               const searchOne = async (q) => {
                 for (const source of sources) {
                   try {
@@ -108,6 +138,7 @@ module.exports = {
                   if (tr) foundTracks.push(tr);
                 } catch (e) { continue; }
               }
+
               if (foundTracks.length) {
                 s = { loadType: 'PLAYLIST_LOADED', tracks: foundTracks, playlist: { name: tracksInfo.name || 'Spotify Playlist' } };
               }
@@ -136,7 +167,7 @@ module.exports = {
           // If still no results, try other sources using either searchQuery or raw query
           if (!s || !s.tracks || s.tracks.length === 0) {
             try {
-              const sources = ['soundcloud', 'bandcamp', 'deezer', 'applemusic'];
+              const sources = ['spotify', 'soundcloud', 'bandcamp', 'deezer', 'applemusic'];
               const fallbackQuery = searchQuery || query;
               for (const source of sources) {
                 try {
@@ -166,7 +197,7 @@ module.exports = {
       }
     } else {
       // Try multiple sources for regular searches
-      const sources = ['soundcloud', 'spotify', 'bandcamp', 'deezer', 'applemusic'];
+      const sources = [ 'spotify','soundcloud','applemusic','deezer','bandcamp' ];
       for (const source of sources) {
         try {
           const searchPromise = player.search({ query, source }, message.member.user);
@@ -183,6 +214,29 @@ module.exports = {
     }
 
     const { getQueueArray } = require('../../utils/queue.js');
+    try {
+      if (s) {
+        const summary = {
+          loadType: s.loadType,
+          tracksLength: Array.isArray(s.tracks) ? s.tracks.length : 0,
+          sampleUris: (Array.isArray(s.tracks) ? s.tracks.slice(0,5).map(t => (t?.info?.uri || t?.uri || '').toString()) : []),
+          playlistName: s.playlist?.name || null
+        };
+      }
+    } catch (e) {}
+    // Normalize loadType values from different lavalink responses (some nodes
+    // return lowercase or different tokens). Map common variants to the
+    // canonical values expected elsewhere in the code.
+    try {
+      if (s && s.loadType && typeof s.loadType === 'string') {
+        const lt = s.loadType.trim().toUpperCase();
+        if (lt === 'PLAYLIST' || lt === 'PLAYLIST_LOADED' || lt === 'PLAYLISTS') s.loadType = 'PLAYLIST_LOADED';
+        else if (lt === 'TRACK' || lt === 'TRACK_LOADED') s.loadType = 'TRACK_LOADED';
+        else if (lt === 'SEARCH' || lt === 'SEARCH_RESULT' || lt === 'SEARCHRESULT') s.loadType = 'SEARCH_RESULT';
+        else if (lt === 'NO_MATCHES' || lt === 'NOMATCHES' || lt === 'NO_MATCH') s.loadType = 'NO_MATCHES';
+        else s.loadType = lt;
+      }
+    } catch (e) {}
     if (!s || !s.tracks || s.tracks.length === 0) {
       if (player && getQueueArray(player).length === 0) {
         await safePlayer.safeDestroy(player);
@@ -218,71 +272,76 @@ module.exports = {
         // reuse getQueueArray declared earlier in this function
 
         if (s.loadType === "PLAYLIST_LOADED" && s.playlist) {
-            if (player.queue) {
-              try {
-                // Debug: log minimal playlist info to help diagnose why only 1 track is added
-                try {
-                  const sampleUris = (s.tracks || []).slice(0,5).map(t => (t?.info?.uri || t?.uri || '').toString());
-                  client.logger?.log && client.logger.log(`playlist-debug: loadType=${s.loadType} tracks=${(s.tracks||[]).length} playlistName=${s.playlist?.name} sample=${sampleUris.join(',')}`,'debug');
-                } catch (e) { console.warn('playlist-debug log failed', e); }
-              } catch (e) {}
-              // Add each track individually to the queue, skip duplicates by identifier
-              const existing = getQueueArray(player).map(t => t?.info?.identifier || t?.identifier || t?.id || t?.uri).filter(Boolean);
-              const toAdd = [];
-              for (const track of s.tracks) {
-                const id = track?.info?.identifier || track?.identifier || track?.id || track?.uri;
-                if (id && existing.includes(id)) continue;
-                toAdd.push(track);
-                if (id) existing.push(id);
-              }
-              safePlayer.queueAdd(player, toAdd);
+            // playlist handling
+            // Add each track individually to the queue, skip duplicates by identifier
+            const existing = getQueueArray(player).map(t => t?.info?.identifier || t?.identifier || t?.id || t?.uri).filter(Boolean);
+            const toAdd = [];
+            for (const track of s.tracks) {
+              const id = track?.info?.identifier || track?.identifier || track?.id || track?.uri;
+              if (id && existing.includes(id)) continue;
+              toAdd.push(track);
+              if (id) existing.push(id);
             }
+            safePlayer.queueAdd(player, toAdd);
+            try {
+              const qarr = getQueueArray(player) || [];
+              const qsample = (qarr || []).slice(0,5).map(x => (x?.info?.uri || x?.uri || x?.title || '')).join(',');
+            } catch (e) {}
         // Suppress immediate TrackStart messages briefly so queued message orders first
-        try { player.set('suppressUntil', Date.now() + 1200); } catch (e) {}
+        try { player.set('suppressUntil', Date.now() + 2000); } catch (e) {}
+        const playlistName = s.playlist?.name || 'Unknown';
+        const playlistUrl = (typeof query === 'string' && query.match(/^https?:\/\//i)) ? query : (s.playlist?.info?.uri || s.playlist?.url || '');
+        const tick = (client.emoji && client.emoji.ok) ? client.emoji.ok : '✅';
+        const userLabel = message.member.toString();
+        const embed = new EmbedBuilder()
+          .setColor(message.client?.embedColor || '#ff0051')
+          .setDescription(`${tick} Added ${s.tracks.length} songs to the queue - ${userLabel}`)
+        const playlistMsg = await message.channel.send({ embeds: [embed] }).catch(() => {});
+
+        // Start playback after the queued message is sent so TrackStart embed
+        // always follows the queue notification.
         if (!player.playing && !player.paused) {
           try {
-            await safePlayer.safeCall(player, 'play');
+            const ok = await attemptPlay(player, s);
+            if (!ok) throw new Error('no-track-started');
           } catch (e) {
-            client.logger?.log(`Failed to play playlist track in guild ${message.guild.id}: ${e.message}`, 'error');
+            client.logger?.log(`Failed to play playlist track in guild ${message.guild.id}: ${(e && (e.message || e))}`,'error');
+            try { player.set('suppressUntil', Date.now()); } catch (ee) {}
             return await message.channel.send({ embeds: [new EmbedBuilder().setColor(message.client?.embedColor || '#ff0051').setDescription("Failed to start playback. Please try again.")] }).catch(() => {});
           }
         }
-        const playlistName = s.playlist?.name || 'Unknown';
-        const playlistUrl = (typeof query === 'string' && query.match(/^https?:\/\//i)) ? query : (s.playlist?.info?.uri || s.playlist?.url || '');
-        const descParts = [`┕ Added **${s.tracks.length}** tracks from **${playlistName}**`];
-        if (playlistUrl) descParts.push(`┕ Playlist URL: ${playlistUrl}`);
-        const playlistMsg = await message.channel.send({
-          embeds: [new EmbedBuilder().setColor(message.client?.embedColor || '#ff0051').setTitle("Playlist Entrusted").setDescription(descParts.join('\n')).setFooter({ text: "Classic Aesthetic • Joker Music" })]
-        }).catch(() => {});
         try { player.set('suppressUntil', Date.now()); } catch (e) {}
         return playlistMsg;
     } else if (s.tracks && s.tracks[0]) {
-        if (player.queue) {
-          // avoid adding duplicate of same identifier
-          const existing = getQueueArray(player).map(t => t?.info?.identifier || t?.identifier || t?.id || t?.uri).filter(Boolean);
-          const newTrack = s.tracks[0];
-          const newId = newTrack?.info?.identifier || newTrack?.identifier || newTrack?.id || newTrack?.uri;
-          if (!newId || !existing.includes(newId)) {
-            safePlayer.queueAdd(player, newTrack);
-            existing.push(newId);
-          }
+        // Add the track to the queue (avoid duplicates)
+        const existing = getQueueArray(player).map(t => t?.info?.identifier || t?.identifier || t?.id || t?.uri).filter(Boolean);
+        const newTrack = s.tracks[0];
+        const newId = newTrack?.info?.identifier || newTrack?.identifier || newTrack?.id || newTrack?.uri;
+        if (!newId || !existing.includes(newId)) {
+          safePlayer.queueAdd(player, newTrack);
+          existing.push(newId);
         }
-        // current track will be served from the normalized queue when playback starts
+
         // Suppress immediate TrackStart messages briefly so queued message orders first
-        try { player.set('suppressUntil', Date.now() + 1200); } catch (e) {}
-        if (!player.playing && !player.paused) {
-          try {
-            await safePlayer.safeCall(player, 'play');
-          } catch (e) {
-            client.logger?.log(`Failed to play single track in guild ${message.guild.id}: ${e.message}`, 'error');
-            return await message.channel.send({ embeds: [new EmbedBuilder().setColor(message.client?.embedColor || '#ff0051').setDescription("Failed to start playback. Please try again.")] }).catch(() => {});
-          }
-        }
+        try { player.set('suppressUntil', Date.now() + 2000); } catch (e) {}
+
         const trackTitle = s.tracks[0].info?.title || s.tracks[0].title || 'Unknown';
         const trackUri = s.tracks[0].info?.uri || s.tracks[0].uri || '';
         const queuedMsg = await message.channel.send({
           embeds: [new EmbedBuilder().setColor(message.client?.embedColor || '#ff0051').setDescription(`Queued [${trackTitle}](${trackUri})\n Requested by: \`${message.member.user.tag}\``)]
         }).catch(() => {});
+
+        // Start playback after queued message is sent
+        if (!player.playing && !player.paused) {
+          try {
+            const ok = await attemptPlay(player, s, s.tracks && s.tracks[0]);
+            if (!ok) throw new Error('no-track-started');
+          } catch (e) {
+            client.logger?.log(`Failed to play single track in guild ${message.guild.id}: ${(e && (e.message || e))}`,'error');
+            try { player.set('suppressUntil', Date.now()); } catch (ee) {}
+            return await message.channel.send({ embeds: [new EmbedBuilder().setColor(message.client?.embedColor || '#ff0051').setDescription("Failed to start playback. Please try again.")] }).catch(() => {});
+          }
+        }
         try { player.set('suppressUntil', Date.now()); } catch (e) {}
         return queuedMsg;
     }

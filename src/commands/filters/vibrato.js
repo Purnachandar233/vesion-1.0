@@ -7,7 +7,7 @@ module.exports = {
   args: false,
   usage: '',
   votelock: true,
-  djonly: true,
+  djonly: false,
   wl: true,
   execute: async (message, args, client, prefix) => {
     const ok = client.emoji.ok
